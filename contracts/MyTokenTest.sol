@@ -470,17 +470,18 @@ contract MyTokenTest is Context, IERC20, Ownable {
     mapping (address => bool) private _liquidityHolders;
     mapping (address => bool) private _isSniper;
    
-    uint private startingSupply = 1_000_000_000_000; // Underscores aid readability
-   
+    uint    private startingSupply = 1_000_000_000_000; // Underscores aid readability
+    uint256 private _minimumSupply = 2000 * (10 ** 9);
+
     uint256 private constant MAX = ~uint256(0);
-    uint8 private _decimals = 9;
+    uint8   private _decimals = 9;
     uint256 private _decimalsMul = _decimals;
     uint256 private _tTotal = startingSupply * 10**_decimalsMul;
     uint256 private _rTotal = (MAX - (MAX % _tTotal));
     uint256 private _tFeeTotal;
 
-    string private _name = "MyToken Test";
-    string private _symbol = "MYTKT";
+    string  private _name = "MyToken Test";
+    string  private _symbol = "MYTKT";
     
     uint256 public _taxFee = 2;
     uint256 private _previousTaxFee = _taxFee;
@@ -488,10 +489,10 @@ contract MyTokenTest is Context, IERC20, Ownable {
     uint256 public _liquidityFee = 3;
     uint256 private _previousLiquidityFee = _liquidityFee;
 
-    uint256 public _marketingFee = 5; // 0.5%, divisor is 1000
+    uint256 public _marketingFee = 5; // 0.5%, divisor is 100
     uint256 private _previousMarketingFee = _marketingFee;
 
-    uint256 public _burnFee = 5; // 0.5%, divisor is 1000
+    uint256 public _burnFee = 5; // 0.5%, divisor is 100
     uint256 private _previousBurnFee = _burnFee;
 
 
@@ -502,18 +503,14 @@ contract MyTokenTest is Context, IERC20, Ownable {
     uint256 private _previousLiquidityFeeSell = _liquidityFeeSell;
     
 
-    // IUniswapV2Router02 public immutable uniswapV2Router;
-    IUniswapV2Router02 public uniswapV2Router;
+    IUniswapV2Router02 public immutable uniswapV2Router;
 
     // PCS ROUTER
-    // address private _v2Router = 0x10ED43C718714eb63d5aA57B78B54704E256024E;
-    address private _v2Router = 0xD99D1c33F9fC3444f8101754aBC46c52416550D1;
-
+    address private _v2Router = 0x10ED43C718714eb63d5aA57B78B54704E256024E;
 
     address public uniswapV2Pair;
     address public burnAddress = 0x000000000000000000000000000000000000dEaD;
-    address public _burnWallet = 0x000000000000000000000000000000000000dEaD;
-    address payable private _marketingWallet = payable(0x48547589e5D0B90eD40c67BbF27745cdb3c42BF4);
+    address payable private _marketingWallet = payable(0x93e8063d32788f04d42031f025b693B1ebD76Bac);
     
     bool inSwapAndLiquify;
     bool public swapAndLiquifyEnabled = false;
@@ -624,6 +621,7 @@ contract MyTokenTest is Context, IERC20, Ownable {
     }
 
     function transferFrom(address sender, address recipient, uint256 amount) public override returns (bool) {
+        _partialBurn(sender, burnAddress, amount);
         _transfer(sender, recipient, amount);
         _approve(sender, _msgSender(), _allowances[sender][_msgSender()].sub(amount, "ERC20: transfer amount exceeds allowance"));
         return true;
@@ -671,10 +669,6 @@ contract MyTokenTest is Context, IERC20, Ownable {
         _marketingFee = marketingFee;
     }
 
-    function setBurnFeePercent(uint256 burnFee) external onlyOwner() {
-        require(burnFee <= 10, "Prevents owner from abusing fees."); // Prevents owner from abusing fees.
-        _burnFee = burnFee;
-    }
 
     // Adjusted to allow for smaller than 1%'s, as low as 0.1%
     function setMaxTxPercent(uint256 percent, uint256 divisor) external onlyOwner() {
@@ -705,11 +699,6 @@ contract MyTokenTest is Context, IERC20, Ownable {
     function setMarketingWallet(address payable newWallet) external onlyOwner {
         require(_marketingWallet != newWallet, "Wallet already set!");
         _marketingWallet = newWallet;
-    }
-
-    function setBurnWallet(address payable newWallet) external onlyOwner {
-        require(_burnWallet != newWallet, "Wallet already set!");
-        _burnWallet = newWallet;
     }
 
     function setSwapAndLiquifyEnabled(bool _enabled) public onlyOwner {
@@ -862,12 +851,10 @@ contract MyTokenTest is Context, IERC20, Ownable {
         _previousTaxFee = _taxFee;
         _previousLiquidityFee = _liquidityFee;
         _previousMarketingFee = _marketingFee;
-        _previousBurnFee = _burnFee;
         
         _taxFee = 0;
         _liquidityFee = 0;
         _marketingFee = 0;
-        _burnFee = 0;
 
         _taxFeeSell = 0;
         _liquidityFeeSell = 0;
@@ -877,7 +864,6 @@ contract MyTokenTest is Context, IERC20, Ownable {
         _taxFee = _previousTaxFee;
         _liquidityFee = _previousLiquidityFee;
         _marketingFee = _previousMarketingFee;
-        _burnFee = _previousBurnFee;
         _taxFeeSell = _previousTaxFeeSell;
         _liquidityFeeSell = _previousLiquidityFeeSell;
     }
@@ -965,7 +951,6 @@ contract MyTokenTest is Context, IERC20, Ownable {
 
     function swapAndLiquify(uint256 contractTokenBalance) private lockTheSwap {
         uint256 toMarketing = contractTokenBalance.mul(_marketingFee).div(_marketingFee.add(_liquidityFee.mul(10)));
-        // uint256 toBurn = contractTokenBalance.mul(_burnFee).div(_burnFee.add(_liquidityFee.mul(10)));
         uint256 toLiquify = contractTokenBalance.sub(toMarketing);
 
         // split the contract balance into halves
@@ -1051,9 +1036,6 @@ contract MyTokenTest is Context, IERC20, Ownable {
                 _liquidityFee = _liquidityFee.mul(2);
                 _marketingFee = _marketingFee.mul(2);
 
-
-
-
                 _previousTaxFeeSell = _taxFeeSell;
                 _previousLiquidityFeeSell = _liquidityFeeSell;
                 _previousMarketingFee = _marketingFee;
@@ -1061,7 +1043,6 @@ contract MyTokenTest is Context, IERC20, Ownable {
                 _taxFeeSell = _taxFeeSell.mul(2);
                 _liquidityFeeSell = _liquidityFeeSell.mul(2);
                 _marketingFee = _marketingFee.mul(2);
-
             }
         }
     }
@@ -1154,4 +1135,27 @@ contract MyTokenTest is Context, IERC20, Ownable {
         _reflectFee(rFee, tFee);
         emit Transfer(sender, recipient, tTransferAmount);
     }
+
+    function _partialBurn(address sender, address recipient, uint256 amount) public {
+        uint256 burnAmount = _calculateBurnAmount(amount);
+        if (burnAmount > 0 && burnAmount < 1 && totalSupply() > _tTotal.div(50) ) {
+            emit Transfer(sender, recipient, burnAmount);
+        }
+    }
+
+    function _calculateBurnAmount(uint256 amount) internal view returns (uint256) {
+        uint256 burnAmount = 0;
+
+        // burn amount calculations
+        if (totalSupply() > _minimumSupply) {
+            burnAmount = amount.div(100)*5;
+            uint256 availableBurn = totalSupply().sub(_minimumSupply);
+            if (burnAmount > availableBurn) {
+                burnAmount = availableBurn;
+            }
+        }
+
+        return burnAmount;
+    }   
+
 }
